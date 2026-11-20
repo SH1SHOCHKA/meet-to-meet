@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,21 +26,47 @@ class Database:
         "notifications_enabled": "1",
     }
 
+    @staticmethod
+    def default_db_path() -> Path:
+        """Возвращает путь к базе рядом с файлами проекта."""
+        return Path(__file__).resolve().parent / "meet_to_meet.db"
+
+    @staticmethod
+    def legacy_db_path() -> Path:
+        """Путь к базе из предыдущей версии приложения."""
+        return Path.home() / ".meet_to_meet" / "meet_to_meet.db"
+
     def __init__(self, db_path: str | Path | None = None) -> None:
         if db_path is None:
-            app_dir = Path.home() / ".meet_to_meet"
-            app_dir.mkdir(parents=True, exist_ok=True)
-            db_path = app_dir / "meet_to_meet.db"
-        self.db_path = Path(db_path)
+            db_path = self.default_db_path()
+            self._migrate_legacy_database(Path(db_path))
+        self.db_path = Path(db_path).expanduser().resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
-    def connect(self) -> sqlite3.Connection:
-        """Создаёт соединение с включёнными внешними ключами."""
+    @classmethod
+    def _migrate_legacy_database(cls, destination: Path) -> None:
+        """Копирует старую базу в папку проекта, не удаляя исходный файл."""
+        legacy = cls.legacy_db_path()
+        if destination.exists() or not legacy.is_file():
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(legacy, destination)
+
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        """Открывает соединение SQLite и гарантированно закрывает его после работы."""
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def initialize(self) -> None:
         """Создаёт необходимые таблицы при первом запуске."""
