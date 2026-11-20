@@ -1,0 +1,67 @@
+name: Build defense materials
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-materials.yml"
+      - ".github/materials_build/part*.b64"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install document libraries
+        run: python -m pip install python-docx python-pptx
+
+      - name: Rebuild source script
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          parts = sorted(Path(".github/materials_build").glob("part*.b64"))
+          if len(parts) != 5:
+              raise SystemExit(f"Expected 5 builder parts, found {len(parts)}")
+          encoded = "".join(
+              part.read_text(encoding="ascii").strip() for part in parts
+          )
+          source = zlib.decompress(base64.b64decode(encoded, validate=True))
+          output = Path("materials/build_materials.py")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_bytes(source)
+          print(f"Reconstructed {output} ({len(source)} bytes)")
+          PY
+
+      - name: Generate DOCX and PPTX
+        run: python materials/build_materials.py
+
+      - name: Commit generated materials
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add materials/build_materials.py
+          git add materials/Meet_to_meet_guide_for_defense.docx
+          git add materials/Meet_to_meet_presentation_minimal.pptx
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+          else
+            git commit -m "Add defense guide and 10-slide presentation"
+            git push
+          fi
