@@ -6,8 +6,8 @@ import csv
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QDate, QTime
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import Qt, QDate, QLocale, QTime
+from PyQt6.QtGui import QAction, QColor, QKeySequence, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
@@ -236,7 +236,8 @@ class MainWindow(QMainWindow):
         self.selected_meeting_id: int | None = None
         self.actions: dict[str, QAction] = {}
         self.setWindowTitle(APP_NAME)
-        self.resize(1050, 680)
+        self.resize(1180, 760)
+        self.setMinimumSize(1020, 680)
         self._build_ui()
         self._build_actions()
         self.notification_manager = NotificationManager(self.database, self)
@@ -247,48 +248,128 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         central = QWidget()
+        central.setObjectName("centralWidget")
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
 
-        toolbar = QHBoxLayout()
-        self.add_button = QPushButton("Добавить встречу")
+        root = QVBoxLayout(central)
+        root.setContentsMargins(22, 18, 22, 16)
+        root.setSpacing(16)
+
+        # Верхняя строка: название приложения и основные действия.
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        brand = QVBoxLayout()
+        brand.setSpacing(2)
+        title = QLabel(APP_NAME)
+        title.setObjectName("appTitle")
+        subtitle = QLabel("Планируйте встречи и держите расписание под контролем")
+        subtitle.setObjectName("appSubtitle")
+        brand.addWidget(title)
+        brand.addWidget(subtitle)
+        header.addLayout(brand, 1)
+
+        self.add_button = QPushButton("Новая встреча")
+        self.add_button.setObjectName("primaryButton")
         self.edit_button = QPushButton("Изменить")
         self.delete_button = QPushButton("Удалить")
-        self.today_button = QPushButton("Сегодня")
         self.export_button = QPushButton("Экспорт")
         self.settings_button = QPushButton("Настройки")
         for button in (
             self.add_button,
             self.edit_button,
             self.delete_button,
-            self.today_button,
             self.export_button,
             self.settings_button,
         ):
-            toolbar.addWidget(button)
-        toolbar.addStretch(1)
-        root.addLayout(toolbar)
+            button.setMinimumHeight(38)
+            header.addWidget(button)
+        root.addLayout(header)
 
         content = QHBoxLayout()
-        self.calendar = QCalendarWidget()
-        self.calendar.setGridVisible(True)
-        self.calendar.setMinimumWidth(320)
-        content.addWidget(self.calendar, 1)
+        content.setSpacing(16)
 
-        right = QVBoxLayout()
+        # Левая панель календаря. Встроенная панель навигации скрыта:
+        # собственные кнопки имеют одинаковый размер и не накладываются.
+        calendar_panel = QWidget()
+        calendar_panel.setObjectName("panel")
+        calendar_panel.setMinimumWidth(340)
+        calendar_panel.setMaximumWidth(390)
+        calendar_layout = QVBoxLayout(calendar_panel)
+        calendar_layout.setContentsMargins(16, 15, 16, 16)
+        calendar_layout.setSpacing(12)
+
+        calendar_title_row = QHBoxLayout()
+        calendar_title = QLabel("Календарь")
+        calendar_title.setObjectName("sectionTitle")
+        self.today_button = QPushButton("Сегодня")
+        self.today_button.setObjectName("quietButton")
+        self.today_button.setMinimumHeight(32)
+        calendar_title_row.addWidget(calendar_title)
+        calendar_title_row.addStretch(1)
+        calendar_title_row.addWidget(self.today_button)
+        calendar_layout.addLayout(calendar_title_row)
+
+        month_navigation = QHBoxLayout()
+        month_navigation.setSpacing(8)
+        self.prev_month_button = QPushButton("‹")
+        self.prev_month_button.setObjectName("calendarNavButton")
+        self.prev_month_button.setToolTip("Предыдущий месяц")
+        self.prev_month_button.setAccessibleName("Предыдущий месяц")
+        self.next_month_button = QPushButton("›")
+        self.next_month_button.setObjectName("calendarNavButton")
+        self.next_month_button.setToolTip("Следующий месяц")
+        self.next_month_button.setAccessibleName("Следующий месяц")
+        self.month_label = QLabel()
+        self.month_label.setObjectName("monthLabel")
+        self.month_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        month_navigation.addWidget(self.prev_month_button)
+        month_navigation.addWidget(self.month_label, 1)
+        month_navigation.addWidget(self.next_month_button)
+        calendar_layout.addLayout(month_navigation)
+
+        self.calendar = QCalendarWidget()
+        self.calendar.setNavigationBarVisible(False)
+        self.calendar.setGridVisible(True)
+        self.calendar.setLocale(QLocale("ru_RU"))
+        self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
+        self.calendar.setHorizontalHeaderFormat(
+            QCalendarWidget.HorizontalHeaderFormat.ShortDayNames
+        )
+        self.calendar.setVerticalHeaderFormat(
+            QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
+        )
+        self.calendar.setMinimumWidth(305)
+        self.calendar.setMinimumHeight(285)
+        calendar_layout.addWidget(self.calendar, 1)
+        content.addWidget(calendar_panel, 0)
+
+        # Правая панель: дата, поиск, список и подробности.
+        meetings_panel = QWidget()
+        meetings_panel.setObjectName("panel")
+        right = QVBoxLayout(meetings_panel)
+        right.setContentsMargins(18, 15, 18, 16)
+        right.setSpacing(12)
+
         self.day_label = QLabel("Встречи на выбранную дату")
-        self.day_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.day_label.setObjectName("sectionTitle")
         right.addWidget(self.day_label)
 
         search_row = QHBoxLayout()
+        search_row.setSpacing(8)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Поиск по названию, месту или описанию...")
-        self.clear_search_button = QPushButton("Очистить")
+        self.search_edit.setPlaceholderText(
+            "Поиск по названию, месту или описанию…"
+        )
+        self.search_edit.setClearButtonEnabled(True)
+        self.clear_search_button = QPushButton("Сбросить")
+        self.clear_search_button.setObjectName("quietButton")
+        self.clear_search_button.setMinimumHeight(36)
         search_row.addWidget(self.search_edit, 1)
         search_row.addWidget(self.clear_search_button)
         right.addLayout(search_row)
 
         self.meetings_table = QTableWidget(0, 5)
+        self.meetings_table.setObjectName("meetingsTable")
         self.meetings_table.setHorizontalHeaderLabels(
             ["Время", "Название", "Место", "Описание", "ID"]
         )
@@ -302,34 +383,81 @@ class MainWindow(QMainWindow):
         self.meetings_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
+        self.meetings_table.setAlternatingRowColors(True)
+        self.meetings_table.setShowGrid(False)
+        self.meetings_table.setWordWrap(False)
         self.meetings_table.verticalHeader().setVisible(False)
+        self.meetings_table.verticalHeader().setDefaultSectionSize(40)
         header = self.meetings_table.horizontalHeader()
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         right.addWidget(self.meetings_table, 1)
 
-        self.details_label = QLabel("Выберите встречу, чтобы посмотреть подробности.")
+        self.details_label = QLabel(
+            "Выберите встречу, чтобы посмотреть подробности."
+        )
+        self.details_label.setObjectName("detailsPanel")
         self.details_label.setWordWrap(True)
-        self.details_label.setMinimumHeight(65)
+        self.details_label.setMinimumHeight(68)
         right.addWidget(self.details_label)
-        content.addLayout(right, 2)
+        content.addWidget(meetings_panel, 1)
         root.addLayout(content, 1)
+
+        self.marked_dates: set[str] = set()
 
         self.add_button.clicked.connect(self.add_meeting)
         self.edit_button.clicked.connect(self.edit_meeting)
         self.delete_button.clicked.connect(self.delete_meeting)
         self.today_button.clicked.connect(self.go_to_today)
+        self.prev_month_button.clicked.connect(self.calendar.showPreviousMonth)
+        self.next_month_button.clicked.connect(self.calendar.showNextMonth)
         self.export_button.clicked.connect(self.export_calendar)
         self.settings_button.clicked.connect(self.open_settings)
         self.calendar.selectionChanged.connect(self.refresh_meetings)
+        self.calendar.currentPageChanged.connect(self._update_month_label)
         self.meetings_table.itemSelectionChanged.connect(self.show_details)
         self.meetings_table.cellDoubleClicked.connect(
             lambda _row, _column: self.edit_meeting()
         )
         self.search_edit.textChanged.connect(self.search_meetings)
         self.clear_search_button.clicked.connect(self.search_edit.clear)
+        self._update_month_label(
+            self.calendar.yearShown(), self.calendar.monthShown()
+        )
+
+    def _update_month_label(self, year: int, month: int) -> None:
+        """Обновляет подпись месяца над календарём."""
+        month_date = QDate(year, month, 1)
+        month_text = QLocale("ru_RU").toString(month_date, "MMMM yyyy")
+        self.month_label.setText(month_text.capitalize())
+
+    def _refresh_calendar_markers(self) -> None:
+        """Подсвечивает даты, на которые уже запланированы встречи."""
+        for date_text in self.marked_dates:
+            old_date = QDate.fromString(date_text, "yyyy-MM-dd")
+            if old_date.isValid():
+                self.calendar.setDateTextFormat(old_date, QTextCharFormat())
+        self.marked_dates.clear()
+
+        marker = QTextCharFormat()
+        if self.settings.get("theme", "Светлая") == "Тёмная":
+            marker.setForeground(QColor("#FDBA74"))
+            marker.setBackground(QColor("#4B2D1D"))
+        else:
+            marker.setForeground(QColor("#C2410C"))
+            marker.setBackground(QColor("#FFEDD5"))
+        marker.setFontWeight(700)
+        for meeting in self.database.get_all_meetings():
+            date_text = meeting["meeting_date"]
+            if date_text in self.marked_dates:
+                continue
+            meeting_date = QDate.fromString(date_text, "yyyy-MM-dd")
+            if meeting_date.isValid():
+                self.calendar.setDateTextFormat(meeting_date, marker)
+                self.marked_dates.add(date_text)
 
     def _build_actions(self) -> None:
         """Создаёт действия меню и назначает горячие клавиши."""
@@ -371,17 +499,201 @@ class MainWindow(QMainWindow):
             self.actions[action_key].setShortcut(QKeySequence(shortcut))
 
     def _apply_theme(self) -> None:
-        """Переключает стандартную светлую или тёмную палитру."""
-        if self.settings.get("theme") == "Тёмная":
-            self.setStyleSheet(
-                "QMainWindow, QDialog, QWidget { background: #303030; color: #eeeeee; }"
-                "QLineEdit, QPlainTextEdit, QTableWidget, QCalendarWidget, "
-                "QComboBox, QDateEdit, QTimeEdit, QSpinBox {"
-                "background: #424242; color: #ffffff; selection-background-color: #606060; }"
-                "QPushButton { padding: 5px 10px; }"
-            )
+        """Применяет единую светлую (белую) или тёмную тему ко всему приложению."""
+        dark = self.settings.get("theme", "Светлая") == "Тёмная"
+        if dark:
+            colors = {
+                "window": "#17191F",
+                "panel": "#22252D",
+                "surface": "#2B2F39",
+                "surface_alt": "#252933",
+                "text": "#F3F4F6",
+                "muted": "#A3AAB8",
+                "border": "#3B414D",
+                "input": "#1D2028",
+                "selection": "#75401F",
+                "selection_text": "#FFFFFF",
+                "accent": "#F97316",
+                "accent_hover": "#EA580C",
+            }
         else:
-            self.setStyleSheet("")
+            # Светлая тема намеренно белая, а не системно-серая.
+            colors = {
+                "window": "#F4F6FA",
+                "panel": "#FFFFFF",
+                "surface": "#FFFFFF",
+                "surface_alt": "#F8FAFC",
+                "text": "#202938",
+                "muted": "#697586",
+                "border": "#E2E8F0",
+                "input": "#FFFFFF",
+                "selection": "#FFEDD5",
+                "selection_text": "#9A3412",
+                "accent": "#F97316",
+                "accent_hover": "#EA580C",
+            }
+
+        stylesheet = f"""
+            QMainWindow, QDialog {{
+                background-color: {colors['window']};
+                color: {colors['text']};
+            }}
+            QWidget {{ color: {colors['text']}; }}
+            QWidget#centralWidget {{ background-color: {colors['window']}; }}
+            QWidget#panel {{
+                background-color: {colors['panel']};
+                border: 1px solid {colors['border']};
+                border-radius: 14px;
+            }}
+            QLabel {{ background: transparent; }}
+            QLabel#appTitle {{
+                font-size: 24px;
+                font-weight: 700;
+                color: {colors['text']};
+            }}
+            QLabel#appSubtitle {{ font-size: 12px; color: {colors['muted']}; }}
+            QLabel#sectionTitle {{ font-size: 16px; font-weight: 650; }}
+            QLabel#monthLabel {{ font-size: 14px; font-weight: 650; }}
+            QPushButton {{
+                background-color: {colors['surface']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 8px;
+                padding: 7px 12px;
+                min-height: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: {colors['surface_alt']};
+                border-color: {colors['muted']};
+            }}
+            QPushButton:pressed {{ background-color: {colors['selection']}; }}
+            QPushButton:disabled {{ color: {colors['muted']}; }}
+            QPushButton#primaryButton {{
+                background-color: {colors['accent']};
+                color: #FFFFFF;
+                border: 1px solid {colors['accent']};
+                font-weight: 650;
+                padding-left: 15px;
+                padding-right: 15px;
+            }}
+            QPushButton#primaryButton:hover {{
+                background-color: {colors['accent_hover']};
+                border-color: {colors['accent_hover']};
+            }}
+            QPushButton#quietButton {{
+                background-color: transparent;
+                border-color: transparent;
+                color: {colors['accent']};
+                padding-left: 8px;
+                padding-right: 8px;
+            }}
+            QPushButton#calendarNavButton {{
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 32px;
+                max-height: 32px;
+                padding: 0px;
+                font-size: 23px;
+                font-weight: 500;
+            }}
+            QLineEdit, QPlainTextEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox {{
+                background-color: {colors['input']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 8px;
+                padding: 7px 9px;
+                selection-background-color: {colors['accent']};
+                selection-color: #FFFFFF;
+            }}
+            QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+            QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {{
+                border: 1px solid {colors['accent']};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {colors['panel']};
+                color: {colors['text']};
+                selection-background-color: {colors['selection']};
+                selection-color: {colors['selection_text']};
+                border: 1px solid {colors['border']};
+            }}
+            QCalendarWidget {{
+                background-color: {colors['panel']};
+                border: none;
+            }}
+            QCalendarWidget QWidget {{
+                background-color: {colors['panel']};
+                color: {colors['text']};
+            }}
+            QCalendarWidget QAbstractItemView {{
+                background-color: {colors['panel']};
+                color: {colors['text']};
+                selection-background-color: {colors['accent']};
+                selection-color: #FFFFFF;
+                outline: 0;
+                border: none;
+                gridline-color: {colors['border']};
+            }}
+            QCalendarWidget QAbstractItemView:disabled {{ color: {colors['muted']}; }}
+            QTableWidget {{
+                background-color: {colors['panel']};
+                alternate-background-color: {colors['surface_alt']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 9px;
+                selection-background-color: {colors['selection']};
+                selection-color: {colors['selection_text']};
+                outline: 0;
+            }}
+            QHeaderView::section {{
+                background-color: {colors['surface_alt']};
+                color: {colors['muted']};
+                border: none;
+                border-bottom: 1px solid {colors['border']};
+                padding: 10px 8px;
+                font-weight: 650;
+            }}
+            QTableWidget::item {{ padding: 7px; border: none; }}
+            QLabel#detailsPanel {{
+                background-color: {colors['surface_alt']};
+                border: 1px solid {colors['border']};
+                border-radius: 9px;
+                padding: 10px 12px;
+            }}
+            QMenuBar, QMenu {{
+                background-color: {colors['panel']};
+                color: {colors['text']};
+            }}
+            QMenu::item {{ padding: 6px 24px 6px 10px; }}
+            QMenu::item:selected {{
+                background-color: {colors['selection']};
+                color: {colors['selection_text']};
+            }}
+            QStatusBar {{
+                background-color: {colors['panel']};
+                color: {colors['muted']};
+                border-top: 1px solid {colors['border']};
+            }}
+            QCheckBox {{ spacing: 8px; }}
+            QScrollBar:vertical {{
+                background: {colors['surface_alt']};
+                width: 10px;
+                margin: 2px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {colors['border']};
+                min-height: 24px;
+                border-radius: 5px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(stylesheet)
+        else:
+            self.setStyleSheet(stylesheet)
 
     def selected_date_text(self) -> str:
         return self.calendar.selectedDate().toString("yyyy-MM-dd")
@@ -399,6 +711,7 @@ class MainWindow(QMainWindow):
         self.day_label.setText(f"Встречи на {date.toString('dd.MM.yyyy')}")
         meetings = self.database.get_meetings_for_date(self.selected_date_text())
         self._fill_table(meetings)
+        self._refresh_calendar_markers()
 
     def _fill_table(self, meetings: list[dict]) -> None:
         self.meetings_table.setRowCount(0)
